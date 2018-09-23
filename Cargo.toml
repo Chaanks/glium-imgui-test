@@ -1,0 +1,10 @@
+[package]
+name = "tuto"
+version = "0.1.0"
+authors = ["cham0 <jarod8405@gmail.com>"]
+
+[dependencies]
+glium = "*"
+imgui = "*"
+image = "*"
+imgui-glium-renderer = "*"
