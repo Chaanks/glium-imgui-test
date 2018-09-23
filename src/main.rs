@@ -4,6 +4,7 @@ extern crate glium;
 extern crate imgui;
 extern crate imgui_glium_renderer;
 
+
 use glium::{ glutin, Surface };
 use glium::uniforms::EmptyUniforms;
 use imgui_glium_renderer::Renderer;
@@ -11,6 +12,8 @@ use imgui::*;
 use std::time::Instant;
 use glium::glutin::{Event, MouseButton, MouseScrollDelta, TouchPhase};
 use glium::glutin::ElementState::Pressed;
+
+mod window;
 
 #[derive(Copy, Clone, PartialEq, Debug, Default)]
 struct MouseState {
@@ -23,7 +26,7 @@ struct MouseState {
 fn main() {
     let mut events_loop = glutin::EventsLoop::new();
     let context = glutin::ContextBuilder::new()
-        .with_vsync(true);
+        .with_vsync(false);
     let window = glutin::WindowBuilder::new()
         .with_title("Triangle")
         .with_dimensions(glutin::dpi::LogicalSize::new(600.0, 600.0));
@@ -191,7 +194,7 @@ fn main() {
                 ui.text(im_str!(""));
                 ui.separator();
                 ui.text(im_str!(
-                    "fps: ({})", ui.framerate(),
+                    "fps: ({})", ui.framerate() as u32,
                         ));              
             });
 
