@@ -9,24 +9,40 @@ use glium::uniforms::EmptyUniforms;
 use imgui_glium_renderer::Renderer;
 use imgui::*;
 use std::time::Instant;
+use glium::glutin::{Event, MouseButton, MouseScrollDelta, TouchPhase};
+use glium::glutin::ElementState::Pressed;
+
+#[derive(Copy, Clone, PartialEq, Debug, Default)]
+struct MouseState {
+    pos: (i32, i32),
+    pressed: (bool, bool, bool),
+    wheel: f32,
+}
 
 
 fn main() {
     let mut events_loop = glutin::EventsLoop::new();
-    let window = glutin::WindowBuilder::new();
     let context = glutin::ContextBuilder::new()
-        .with_vsync(false);
+        .with_vsync(true);
+    let window = glutin::WindowBuilder::new()
+        .with_title("Triangle")
+        .with_dimensions(glutin::dpi::LogicalSize::new(600.0, 600.0));
 
     let display =  match glium::Display::new(window, context, &events_loop) {
         Ok(i) => i,
         Err(err) => panic!("Failed to create window: {:?}", err)
     };
-    //let window = display.gl_window();
+    let window = display.gl_window();
 
     let mut imgui = ImGui::init();
+    imgui.set_ini_filename(None);
+
+    let hidpi_factor = window.get_hidpi_factor().round();
+
     let mut renderer = Renderer::init(&mut imgui, &display).unwrap();
 
     let mut last_frame = Instant::now();
+    let mut mouse_state = MouseState::default();
     let mut rgb =  [0.0, 0.0, 0.0];
 
     #[derive(Copy, Clone)]
@@ -99,33 +115,86 @@ fn main() {
         target.draw(&vertex_buffer, &indices, &program, &uniform! { t: t },
                     &Default::default()).expect("Failed to draw");
 
+        events_loop.poll_events(|ev| {
+            match ev {
+                glutin::Event::WindowEvent { event, ..} => match event {
+                    glutin::WindowEvent::CloseRequested => closed = true,
+                    glutin::WindowEvent::CursorMoved { position: pos, .. } => {
+                        // Rescale position from glutin logical coordinates to our logical
+                        // coordinates
+                        mouse_state.pos = pos
+                            .to_physical(window.get_hidpi_factor())
+                            .to_logical(hidpi_factor)
+                            .into();
+                    },
+                    glutin::WindowEvent::MouseInput { state, button, .. } => match button {
+                        MouseButton::Left => mouse_state.pressed.0 = state == Pressed,
+                        MouseButton::Right => mouse_state.pressed.1 = state == Pressed,
+                        MouseButton::Middle => mouse_state.pressed.2 = state == Pressed,
+                        _ => {}
+                    },
+                    _ => (),
+                },
+
+                _ => (),
+            }
+        });
 
         let now = Instant::now();
 	    let delta = now - last_frame;
 	    let delta_s = delta.as_secs() as f32 + delta.subsec_nanos() as f32 / 1_000_000_000.0;
-        let fps = (1.0 / (delta.as_secs() as f64 + delta.subsec_nanos() as f64 * 1e-9)) as i32;
         last_frame = now;
 
-        //let inner_size = window.get_inner_size().unwrap();
-        //let hidpi_factor = window.get_hidpi_factor();
-        //let frame_size = FrameSize::new(inner_size.width, inner_size.height, hidpi_factor);
-        //let ui = imgui.frame(frame_size, delta_s);
-        let ui = Ui::current_ui().unwrap();
+        update_mouse(&mut imgui, &mut mouse_state);
 
+        let mouse_cursor = imgui.mouse_cursor();
+        if imgui.mouse_draw_cursor() || mouse_cursor == ImGuiMouseCursor::None {
+            // Hide OS cursor
+            window.hide_cursor(true);
+        } else {
+            // Set OS cursor
+            window.hide_cursor(false);
+            window.set_cursor(match mouse_cursor {
+                ImGuiMouseCursor::None => unreachable!("mouse_cursor was None!"),
+                ImGuiMouseCursor::Arrow => glutin::MouseCursor::Arrow,
+                ImGuiMouseCursor::TextInput => glutin::MouseCursor::Text,
+                ImGuiMouseCursor::Move => glutin::MouseCursor::Move,
+                ImGuiMouseCursor::ResizeNS => glutin::MouseCursor::NsResize,
+                ImGuiMouseCursor::ResizeEW => glutin::MouseCursor::EwResize,
+                ImGuiMouseCursor::ResizeNESW => glutin::MouseCursor::NeswResize,
+                ImGuiMouseCursor::ResizeNWSE => glutin::MouseCursor::NwseResize,
+            });
+        }
+
+        // Rescale window size from glutin logical size to our logical size
+        let physical_size = window
+            .get_inner_size()
+            .unwrap()
+            .to_physical(window.get_hidpi_factor());
+        let logical_size = physical_size.to_logical(hidpi_factor);
+
+        let frame_size = FrameSize {
+            logical_size: logical_size.into(),
+            hidpi_factor,
+        };
+
+        let ui = imgui.frame(frame_size, delta_s);
+   
 
         let mut color = EditableColor::Float3(&mut rgb);
         let color_edit = imgui::ColorEdit::new(&ui, im_str!("bg color"), color);
         // imgui ui
         ui.window(im_str!("Debug"))
-            .position((10.0, 10.0), ImGuiCond::FirstUseEver)
-            .size((200.0, 100.0), ImGuiCond::FirstUseEver)
+            .position((10.0, 10.0), ImGuiCond::Appearing)
+            .size((200.0, 100.0), ImGuiCond::Appearing)
             .build(|| {
                 ui.text(im_str!(""));
                 ui.separator();
                 ui.text(im_str!(
-                    "FPS: ({})", fps,
-                        ));
+                    "fps: ({})", ui.framerate(),
+                        ));              
             });
+
 
         ui.window(im_str!("Background"))
             .position((250.0, 10.0), ImGuiCond::Appearing)
@@ -133,25 +202,28 @@ fn main() {
             .build(|| {
                 color_edit.build();
                 if ui 
-                    .button(im_str!("update"), (50.0, 20.0))
+                .color_button(im_str!("Green color"), (0.0, 1.0, 0.0, 1.0))
+                .size((20.0, 20.0))
+                .build()
                 {
-                    println!("Clicked");
-                }
-        });
-        
 
+                }
+            });
         renderer.render(&mut target, ui).unwrap();
         target.finish().unwrap();
-        events_loop.poll_events(|ev| {
-            match ev {
-                glutin::Event::WindowEvent { event, ..} => match event {
-                    glutin::WindowEvent::CloseRequested => closed = true,
-                    _ => (),
-                },
-
-                _ => (),
-            }
-        });
     }
-    
+       
+}
+
+fn update_mouse(imgui: &mut ImGui, mouse_state: &mut MouseState) {
+    imgui.set_mouse_pos(mouse_state.pos.0 as f32, mouse_state.pos.1 as f32);
+    imgui.set_mouse_down([
+        mouse_state.pressed.0,
+        mouse_state.pressed.1,
+        mouse_state.pressed.2,
+        false,
+        false,
+    ]);
+    imgui.set_mouse_wheel(mouse_state.wheel);
+    mouse_state.wheel = 0.0;
 }
